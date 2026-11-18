@@ -4,6 +4,9 @@ const API_URL =
   process.env.NEXT_PUBLIC_API_URL || "http://api.dailyfoodhut.com";
 
 const nextConfig: NextConfig = {
+  experimental: {
+    cpus: 1,
+  },
   turbopack: {
     root: __dirname,
   },
