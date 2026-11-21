@@ -28,6 +28,14 @@ body {
   body:has(.mobile-bottom-nav) {
     padding-bottom: calc(var(--mobile-nav-h) + env(safe-area-inset-bottom));
   }
+  /* Place Order panel (MobileOrderBar): 1px border + 10px + 50px bar + 22px room for the
+     tab bar's raised button. Floating buttons use it too. */
+  :root:has(.mobile-order-bar) {
+    --bottom-bar-h: 83px;
+  }
+  body:has(.mobile-order-bar) {
+    padding-bottom: calc(var(--mobile-nav-h, 0px) + var(--bottom-bar-h) + env(safe-area-inset-bottom));
+  }
 }
 
 .scrollbar-hide::-webkit-scrollbar {

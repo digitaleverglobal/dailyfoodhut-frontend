@@ -18,6 +18,7 @@ import {
   type DeliveryArea,
 } from "@/services/deliveryAreaService";
 import { getPixelClickData, trackPixelEvent } from "@/lib/pixel";
+import { saveOrderSummary } from "@/lib/orderSummary";
 import { validateCoupon, type AppliedCoupon } from "@/services/couponService";
 import { fetchProductById } from "@/services/productService";
 import { variantLabel } from "@/lib/useVariantSelection";
@@ -438,6 +439,33 @@ function CheckoutContent({ header, footer }: SiteChromeSlots) {
           total: grandTotal,
         }),
       );
+      // Shown on the order-success page. Kept in this tab only: invoice IDs are sequential,
+      // so the page never fetches order details by invoice.
+      const savedItems = order.items?.length ? order.items : items;
+      const subtotal = Number(order.subtotal) || totalPrice;
+      const delivery = Number.isFinite(Number(order.deliveryCharge)) ? Number(order.deliveryCharge) : deliveryCharge;
+      const total = Number.isFinite(Number(order.total)) ? Number(order.total) : grandTotal;
+      saveOrderSummary({
+        invoiceId: order.invoiceId || order.orderId || "",
+        placedAt: order.createdAt || new Date().toISOString(),
+        name,
+        phone: normalizedPhone,
+        address,
+        deliveryArea: selectedArea?.area || "",
+        paymentMethod: paymentMethods.find((m) => m.id === payment)?.label || payment,
+        note: customerNote.trim(),
+        items: savedItems.map((i) => ({
+          name: i.name,
+          image: i.image,
+          variant: i.variant || [i.size, i.color].filter(Boolean).join(", "),
+          price: Number(i.price) || 0,
+          qty: Number(i.qty) || 0,
+        })),
+        subtotal,
+        deliveryCharge: delivery,
+        discount: Math.max(0, subtotal + delivery - total),
+        total,
+      });
       checkout.complete();
       clearCart();
       router.push(

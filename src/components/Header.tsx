@@ -15,6 +15,7 @@ import { useCustomer } from "@/context/CustomerContext";
 import AccountMenu from "@/components/AccountMenu";
 import CartDrawer from "@/components/CartDrawer";
 import MobileBottomNav from "@/components/MobileBottomNav";
+import MobileOrderBar from "@/components/MobileOrderBar";
 import { trackPixelEvent } from "@/lib/pixel";
 
 const PRIMARY   = "#1A7D36";   // logo green, deepened for white text
@@ -575,6 +576,7 @@ function HeaderInner({ logoUrl, navItems: navItemsProp }: HeaderProps) {
       </nav>
 
       <MobileBottomNav />
+      <MobileOrderBar />
       {cartOpen && <CartDrawer onClose={closeCart} onCheckout={handleCartCheckout} />}
     </header>
   );

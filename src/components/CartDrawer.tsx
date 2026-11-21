@@ -46,7 +46,16 @@ export default function CartDrawer({ onClose, onCheckout }: { onClose: () => voi
       >
         {/* Header */}
         <div className="flex items-center justify-between border-b border-gray-200" style={{ padding: "16px clamp(16px, 4vw, 24px)" }}>
-          <h2 className="font-semibold text-[#222]" style={{ fontSize: 20 }}>Shopping Cart</h2>
+          <div className="flex min-w-0 items-center gap-2">
+            <button
+              onClick={onClose}
+              className="-ml-2 flex h-9 w-9 shrink-0 items-center justify-center rounded-full text-[#222] transition-colors hover:bg-gray-100 hover:text-[#1A7D36]"
+              aria-label="Back"
+            >
+              <svg width="22" height="22" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round" viewBox="0 0 24 24"><path d="M15 18l-6-6 6-6" /></svg>
+            </button>
+            <h2 className="truncate font-semibold text-[#222]" style={{ fontSize: 20 }}>Shopping Cart</h2>
+          </div>
           <div className="flex items-center gap-5">
             {items.length > 0 && (
               <button
