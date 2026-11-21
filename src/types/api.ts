@@ -41,6 +41,7 @@ export interface ApiProduct {
   variants: ApiVariant[] | null;
   sku: string | null;
   freeShipping?: boolean | string | number;
+  deliveryAreaIds?: number[];
   bestDeals?: boolean | string | number;
   flashSale?: boolean | string | number;
   inStock: boolean;

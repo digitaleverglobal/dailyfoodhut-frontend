@@ -22,7 +22,7 @@ export function ProductTile({ product }: { product: Product }) {
   const [selected, setSelected] = useState<ProductVariant | null>(firstAvailable);
   const [added, setAdded] = useState(false);
   const [showModal, setShowModal] = useState(false);
-  const { items, addToCart, updateQty, removeFromCart } = useCart();
+  const { items, addToCart, updateQty, removeFromCart, openCart } = useCart();
 
   // Cart line for the product + currently selected variant; while it exists the + turns into a stepper.
   const cartIndex = items.findIndex(
@@ -43,6 +43,8 @@ export function ProductTile({ product }: { product: Product }) {
       return;
     }
     addToCart(product, 1, selected);
+    // First add from the card opens the cart drawer; the stepper's + just bumps qty.
+    if (cartQty === 0) openCart();
     setAdded(true);
     setTimeout(() => setAdded(false), 1200);
     trackPixelEvent("AddToCart", {

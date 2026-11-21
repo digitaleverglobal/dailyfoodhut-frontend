@@ -14,6 +14,8 @@ export interface Product {
   features?: string[];
   sku?: string | null;
   freeShipping?: boolean;
+  /** Delivery areas this product ships to (admin → product); empty = every area. */
+  deliveryAreaIds?: number[];
   /** Marked "Best Deals" in admin; shown as popular products. */
   bestDeals?: boolean;
   flashSale?: boolean;

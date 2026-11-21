@@ -44,6 +44,10 @@ interface CartContextValue {
   clearCart: () => void;
   totalItems: number;
   totalPrice: number;
+  /** Right-side cart drawer, rendered by Header. */
+  cartOpen: boolean;
+  openCart: () => void;
+  closeCart: () => void;
 }
 
 const CartContext = createContext<CartContextValue>({
@@ -56,6 +60,9 @@ const CartContext = createContext<CartContextValue>({
   clearCart: () => {},
   totalItems: 0,
   totalPrice: 0,
+  cartOpen: false,
+  openCart: () => {},
+  closeCart: () => {},
 });
 
 const CART_KEY = "kafela_cart";
@@ -71,6 +78,9 @@ function loadCart(): CartItem[] {
 
 export function CartProvider({ children }: { children: React.ReactNode }) {
   const [items, setItems] = useState<CartItem[]>([]);
+  const [cartOpen, setCartOpen] = useState(false);
+  const openCart = useCallback(() => setCartOpen(true), []);
+  const closeCart = useCallback(() => setCartOpen(false), []);
 
   // Load from localStorage on mount
   useEffect(() => {
@@ -229,6 +239,9 @@ export function CartProvider({ children }: { children: React.ReactNode }) {
         clearCart,
         totalItems,
         totalPrice,
+        cartOpen,
+        openCart,
+        closeCart,
       }}
     >
       {children}

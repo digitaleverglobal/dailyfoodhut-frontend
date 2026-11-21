@@ -11,7 +11,6 @@ import {
 } from "@/lib/checkoutOptions";
 import {
   getDeliveryAreaCharge,
-  getDeliveryDistricts,
   type DeliveryArea,
 } from "@/services/deliveryAreaService";
 import { validateCoupon, type AppliedCoupon } from "@/services/couponService";
@@ -139,18 +138,13 @@ export default function LandingCheckoutForm({
   const menuPortalTarget =
     typeof document !== "undefined" ? document.body : null;
 
-  // With delivery areas configured they price delivery, like the website checkout;
-  // otherwise Dhaka uses the page's inside charge and every other district the outside one.
+  // With delivery areas configured (admin → Delivery Area) they are the options and price
+  // delivery, like the website checkout; otherwise a district is picked and Dhaka uses the
+  // page's inside charge and every other district the outside one.
   const usesDeliveryAreas = deliveryAreas.length > 0;
-  const districtOptions = usesDeliveryAreas
-    ? getDeliveryDistricts(deliveryAreas)
-    : BD_DISTRICTS;
-  const areaOptions = deliveryAreas.filter(
-    (area) => area.district === district,
-  );
-  const selectedArea = areaOptions.find(
-    (area) => String(area.Id) === deliveryAreaId,
-  );
+  const selectedArea = usesDeliveryAreas
+    ? deliveryAreas.find((area) => String(area.Id) === deliveryAreaId)
+    : undefined;
   const deliveryChosen = usesDeliveryAreas
     ? Boolean(selectedArea)
     : Boolean(district);
@@ -175,7 +169,10 @@ export default function LandingCheckoutForm({
     deliveryOutside,
     delivery: {
       charge: locationCharge,
-      customerDistrict: district,
+      // Never empty with an area picked, or the order API would price it as inside/outside.
+      customerDistrict: selectedArea
+        ? selectedArea.district || selectedArea.area
+        : district,
       deliveryAreaId: selectedArea?.Id,
     },
     extras: {
@@ -190,8 +187,8 @@ export default function LandingCheckoutForm({
         : null,
     },
     validate: () => {
+      if (usesDeliveryAreas) return selectedArea ? "" : labels.areaRequiredError;
       if (!district) return labels.requiredError;
-      if (usesDeliveryAreas && !selectedArea) return labels.areaRequiredError;
       return "";
     },
     demo,
@@ -254,13 +251,9 @@ export default function LandingCheckoutForm({
     },
   ].filter((method) => method.id === "cod" || method.number);
 
-  const districtSelectOptions: SelectOption[] = districtOptions.map((name) => ({
+  const districtSelectOptions: SelectOption[] = BD_DISTRICTS.map((name) => ({
     value: name,
     label: name,
-  }));
-  const areaSelectOptions: SelectOption[] = areaOptions.map((area) => ({
-    value: String(area.Id),
-    label: `${area.area} (৳${fmt(getDeliveryAreaCharge(area))})`,
   }));
 
   return (
@@ -349,9 +342,40 @@ export default function LandingCheckoutForm({
               </FieldLabel>
 
               <div>
-                <div
-                  className={`grid gap-4 ${usesDeliveryAreas ? "md:grid-cols-2" : ""}`}
-                >
+                {usesDeliveryAreas ? (
+                  <FieldLabel label={labels.areaLabel} required>
+                    <div className="grid gap-3 sm:grid-cols-2">
+                      {deliveryAreas.map((area) => {
+                        const checked = String(area.Id) === deliveryAreaId;
+                        return (
+                          <label
+                            key={area.Id}
+                            className="flex cursor-pointer items-center gap-2.5 rounded-lg border-[1.5px] px-4 py-3 text-sm font-semibold"
+                            style={{
+                              borderColor: checked ? colors.accentColor : "#ddd",
+                              background: checked ? "#FFF5EC" : "#fff",
+                              color: checked ? colors.accentColor : "#333",
+                            }}
+                          >
+                            <input
+                              type="radio"
+                              name={`landing-${landingId}-delivery-area`}
+                              value={area.Id}
+                              checked={checked}
+                              onChange={() => setDeliveryAreaId(String(area.Id))}
+                              className="m-0"
+                              style={{ accentColor: colors.accentColor }}
+                            />
+                            <span className="flex-1">{area.area}</span>
+                            <span className="font-medium text-[#666]">
+                              ৳{fmt(getDeliveryAreaCharge(area))}
+                            </span>
+                          </label>
+                        );
+                      })}
+                    </div>
+                  </FieldLabel>
+                ) : (
                   <FieldLabel label={labels.districtLabel} required>
                     <IconField icon={<HomeIcon />}>
                       <Select<SelectOption>
@@ -362,10 +386,7 @@ export default function LandingCheckoutForm({
                             (o) => o.value === district,
                           ) ?? null
                         }
-                        onChange={(option) => {
-                          setDistrict(option?.value ?? "");
-                          setDeliveryAreaId("");
-                        }}
+                        onChange={(option) => setDistrict(option?.value ?? "")}
                         placeholder={labels.districtPlaceholder}
                         noOptionsMessage={() => "কোনো জেলা পাওয়া যায়নি"}
                         styles={SELECT_STYLES}
@@ -373,34 +394,7 @@ export default function LandingCheckoutForm({
                       />
                     </IconField>
                   </FieldLabel>
-                  {usesDeliveryAreas ? (
-                    <FieldLabel label={labels.areaLabel} required>
-                      <IconField icon={<PinIcon />}>
-                        <Select<SelectOption>
-                          instanceId={`landing-${landingId}-area`}
-                          options={areaSelectOptions}
-                          value={
-                            areaSelectOptions.find(
-                              (o) => o.value === deliveryAreaId,
-                            ) ?? null
-                          }
-                          onChange={(option) =>
-                            setDeliveryAreaId(option?.value ?? "")
-                          }
-                          isDisabled={!district}
-                          placeholder={
-                            district
-                              ? labels.areaPlaceholder
-                              : "-- আগে জেলা বেছে নিন --"
-                          }
-                          noOptionsMessage={() => "কোনো এরিয়া পাওয়া যায়নি"}
-                          styles={SELECT_STYLES}
-                          menuPortalTarget={menuPortalTarget}
-                        />
-                      </IconField>
-                    </FieldLabel>
-                  ) : null}
-                </div>
+                )}
                 {deliveryChosen ? (
                   <p className="mt-1.5 text-[13px] font-medium text-[#FE7A0D]">
                     {order.allFreeShipping

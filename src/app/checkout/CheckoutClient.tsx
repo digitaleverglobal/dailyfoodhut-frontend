@@ -15,7 +15,6 @@ import {
 import {
   fetchDeliveryAreas,
   getDeliveryAreaCharge,
-  getDeliveryDistricts,
   type DeliveryArea,
 } from "@/services/deliveryAreaService";
 import { getPixelClickData, trackPixelEvent } from "@/lib/pixel";
@@ -23,19 +22,13 @@ import { validateCoupon, type AppliedCoupon } from "@/services/couponService";
 import { fetchProductById } from "@/services/productService";
 import { variantLabel } from "@/lib/useVariantSelection";
 import type { ProductVariant } from "@/data/products";
-import Select, { type StylesConfig } from "react-select";
 import {
-  BD_DISTRICTS,
   DEFAULT_DELIVERY_POLICY,
-  DELIVERY_TIME_OPTIONS,
   getCouponErrorMessage,
   normalizePhoneNumber,
-  toDateInputValue,
 } from "@/lib/checkoutOptions";
 import { useCustomer } from "@/context/CustomerContext";
 import { fetchMyRewards, maxRedeemablePoints, type MyRewards } from "@/services/rewardService";
-
-type SelectOption = { value: string; label: string };
 
 const fmt = (v: number) => v.toLocaleString("en-US");
 const DEVICE_ID_KEY = "kafela_device_id";
@@ -68,18 +61,14 @@ function CheckoutContent({ header, footer }: SiteChromeSlots) {
   const [productVariants, setProductVariants] = useState<
     Record<number, ProductVariant[]>
   >({});
+  const [productAreaIds, setProductAreaIds] = useState<
+    Record<number, number[]>
+  >({});
 
   const [name, setName] = useState("");
   const [phone, setPhone] = useState("");
   const [address, setAddress] = useState("");
-  const [district, setDistrict] = useState("");
   const [deliveryAreaId, setDeliveryAreaId] = useState("");
-  const [deliveryDay, setDeliveryDay] = useState("");
-  const [deliveryTime, setDeliveryTime] = useState("");
-  // Optional; sent as "YYYY-MM-DD" or "YYYY-MM-DD hh:mm AM/PM".
-  const deliveryDate = deliveryDay
-    ? [deliveryDay, deliveryTime].filter(Boolean).join(" ")
-    : "";
   const [customerNote, setCustomerNote] = useState("");
   const [showNote, setShowNote] = useState(false);
   const [payment, setPayment] = useState<"bkash" | "nagad" | "rocket" | "cod">(
@@ -118,24 +107,23 @@ function CheckoutContent({ header, footer }: SiteChromeSlots) {
 
   const allItemsFreeShipping =
     items.length > 0 && items.every((item) => item.freeShipping === true);
-  // With delivery areas configured, districts and charges come from them; otherwise the
-  // full district list and the older inside/outside Dhaka charge are used.
-  const usesDeliveryAreas = deliveryAreas.length > 0;
-  const districtOptions = usesDeliveryAreas
-    ? getDeliveryDistricts(deliveryAreas)
-    : BD_DISTRICTS;
-  const areaOptions = deliveryAreas.filter(
-    (area) => area.district === district,
-  );
-  const selectedArea = areaOptions.find(
-    (area) => String(area.Id) === deliveryAreaId,
-  );
-  const deliveryLocationChosen = usesDeliveryAreas
-    ? Boolean(selectedArea)
-    : Boolean(district);
-  const regularDeliveryCharge = usesDeliveryAreas
+  // Options are the active areas from admin → Website Setting → Delivery Area, limited to
+  // the ones every cart product allows (a product with none set allows all).
+  const areaOptions = items.reduce((areas, item) => {
+    const allowed = productAreaIds[item.id];
+    return allowed?.length
+      ? areas.filter((area) => allowed.includes(Number(area.Id)))
+      : areas;
+  }, deliveryAreas);
+  // A single allowed area is picked for the customer.
+  const selectedArea =
+    areaOptions.length === 1
+      ? areaOptions[0]
+      : areaOptions.find((area) => String(area.Id) === deliveryAreaId);
+  // Without any delivery areas configured, the outside-Dhaka charge applies (as on the server).
+  const regularDeliveryCharge = deliveryAreas.length
     ? getDeliveryAreaCharge(selectedArea)
-    : getDeliveryChargeForDistrict(deliveryCharges, district);
+    : getDeliveryChargeForDistrict(deliveryCharges, "outside");
   // Reward points and tier benefits apply only when ordering on the logged-in
   // account's own phone (the backend checks the same).
   const rewardPhoneMatches =
@@ -210,14 +198,22 @@ function CheckoutContent({ header, footer }: SiteChromeSlots) {
       missing.map((id) =>
         fetchProductById(id)
           .catch(() => null)
-          .then((product) => [id, product?.variants || []] as const),
+          .then((product) => ({
+            id,
+            variants: product?.variants || [],
+            areaIds: product?.deliveryAreaIds || [],
+          })),
       ),
     ).then((entries) => {
-      if (active)
-        setProductVariants((prev) => ({
-          ...prev,
-          ...Object.fromEntries(entries),
-        }));
+      if (!active) return;
+      setProductVariants((prev) => ({
+        ...prev,
+        ...Object.fromEntries(entries.map((e) => [e.id, e.variants])),
+      }));
+      setProductAreaIds((prev) => ({
+        ...prev,
+        ...Object.fromEntries(entries.map((e) => [e.id, e.areaIds])),
+      }));
     });
     return () => {
       active = false;
@@ -262,9 +258,7 @@ function CheckoutContent({ header, footer }: SiteChromeSlots) {
           customerName: name.trim() || "Incomplete Customer",
           customerPhone: normalizedPhone,
           customerAddress: address.trim(),
-          customerDistrict: district || undefined,
           deliveryAreaId: selectedArea?.Id,
-          deliveryDate: deliveryDate || undefined,
           customerNote: customerNote.trim() || undefined,
           paymentMethod: payment,
           items: items.map((i) => ({
@@ -319,11 +313,9 @@ function CheckoutContent({ header, footer }: SiteChromeSlots) {
   }, [
     address,
     customerNote,
-    deliveryDate,
     appliedCoupon?.code,
     deliveryCharge,
     discount,
-    district,
     selectedArea?.Id,
     grandTotal,
     incompleteOrderId,
@@ -359,12 +351,16 @@ function CheckoutContent({ header, footer }: SiteChromeSlots) {
   const handleConfirm = async () => {
     if (checkout.submitting.current) return;
     const normalizedPhone = normalizePhoneNumber(phone);
-    if (!name || !phone || !address || !district) {
-      setErrorMsg("নাম, ফোন, জেলা এবং ঠিকানা পূরণ করুন।");
+    if (!name || !phone || !address) {
+      setErrorMsg("নাম, ফোন এবং ঠিকানা পূরণ করুন।");
       return;
     }
-    if (usesDeliveryAreas && !selectedArea) {
-      setErrorMsg("এরিয়া নির্বাচন করুন।");
+    if (deliveryAreas.length > 0 && areaOptions.length === 0) {
+      setErrorMsg("কার্টের পণ্যগুলো একই এরিয়াতে ডেলিভারি হয় না। আলাদা অর্ডার করুন।");
+      return;
+    }
+    if (deliveryAreas.length > 0 && !selectedArea) {
+      setErrorMsg("ডেলিভারি এরিয়া নির্বাচন করুন।");
       return;
     }
     if (!/^01\d{9}$/.test(normalizedPhone)) {
@@ -386,9 +382,7 @@ function CheckoutContent({ header, footer }: SiteChromeSlots) {
         customerName: name,
         customerPhone: normalizedPhone,
         customerAddress: address,
-        customerDistrict: district,
         deliveryAreaId: selectedArea?.Id,
-        deliveryDate: deliveryDate || undefined,
         customerNote: customerNote.trim() || undefined,
         paymentMethod: payment,
         items: items.map((i) => ({
@@ -495,45 +489,6 @@ function CheckoutContent({ header, footer }: SiteChromeSlots) {
     background: "#fff",
   };
 
-  const districtSelectOptions: SelectOption[] = districtOptions.map((d) => ({
-    value: d,
-    label: d,
-  }));
-  const areaSelectOptions: SelectOption[] = areaOptions.map((area) => ({
-    value: String(area.Id),
-    label: `${area.area} (৳${fmt(getDeliveryAreaCharge(area))})`,
-  }));
-  // The field wrapper clips overflow, so the menu renders on <body>.
-  const menuPortalTarget =
-    typeof document !== "undefined" ? document.body : null;
-  const selectStyles: StylesConfig<SelectOption, false> = {
-    container: (base) => ({ ...base, flex: 1 }),
-    control: (base, state) => ({
-      ...base,
-      minHeight: 46,
-      border: "none",
-      boxShadow: "none",
-      background: "transparent",
-      cursor: state.isDisabled ? "not-allowed" : "pointer",
-    }),
-    valueContainer: (base) => ({ ...base, padding: "0 14px" }),
-    placeholder: (base) => ({ ...base, fontSize: 14, color: "#888" }),
-    singleValue: (base) => ({ ...base, fontSize: 14, color: "#333" }),
-    input: (base) => ({ ...base, fontSize: 14 }),
-    indicatorSeparator: () => ({ display: "none" }),
-    menuPortal: (base) => ({ ...base, zIndex: 9999 }),
-    option: (base, state) => ({
-      ...base,
-      fontSize: 14,
-      cursor: "pointer",
-      background: state.isSelected
-        ? "#1A7D36"
-        : state.isFocused
-          ? "#FFF1E6"
-          : "#fff",
-      color: state.isSelected ? "#fff" : "#333",
-    }),
-  };
 
   return (
     <div
@@ -690,221 +645,83 @@ function CheckoutContent({ header, footer }: SiteChromeSlots) {
                   </div>
                 </div>
 
-                {/* District + area */}
-                <div>
-                  <div
-                    style={{
-                      display: "grid",
-                      gridTemplateColumns: usesDeliveryAreas
-                        ? "repeat(auto-fit, minmax(220px, 1fr))"
-                        : "1fr",
-                      gap: 16,
-                    }}
-                  >
-                    <div>
-                      <label
-                        style={{
-                          fontSize: 14,
-                          fontWeight: 600,
-                          color: "#333",
-                          display: "block",
-                          marginBottom: 8,
-                        }}
-                      >
-                        জেলা নির্বাচন করুন{" "}
-                        <span style={{ color: "#D7262E" }}>*</span>
-                      </label>
-                      <div style={{ ...fieldWrap, position: "relative" }}>
-                        <span style={iconBox}>
-                          <svg
-                            width="18"
-                            height="18"
-                            fill="none"
-                            stroke="#888"
-                            strokeWidth="1.8"
-                            viewBox="0 0 24 24"
-                          >
-                            <path d="M3 12l2-2m0 0l7-7 7 7M5 10v10a1 1 0 001 1h3m10-11l2 2m-2-2v10a1 1 0 01-1 1h-3m-6 0h6" />
-                          </svg>
-                        </span>
-                        <Select<SelectOption>
-                          instanceId="checkout-district"
-                          options={districtSelectOptions}
-                          value={
-                            districtSelectOptions.find(
-                              (o) => o.value === district,
-                            ) ?? null
-                          }
-                          onChange={(option) => {
-                            setDistrict(option?.value ?? "");
-                            setDeliveryAreaId("");
-                          }}
-                          placeholder="-- জেলা বেছে নিন --"
-                          noOptionsMessage={() => "কোনো জেলা পাওয়া যায়নি"}
-                          styles={selectStyles}
-                          menuPortalTarget={menuPortalTarget}
-                        />
-                      </div>
-                    </div>
-                    {usesDeliveryAreas && (
-                      <div>
-                        <label
-                          style={{
-                            fontSize: 14,
-                            fontWeight: 600,
-                            color: "#333",
-                            display: "block",
-                            marginBottom: 8,
-                          }}
-                        >
-                          এরিয়া নির্বাচন করুন{" "}
-                          <span style={{ color: "#D7262E" }}>*</span>
-                        </label>
-                        <div style={{ ...fieldWrap, position: "relative" }}>
-                          <span style={iconBox}>
-                            <svg
-                              width="18"
-                              height="18"
-                              fill="none"
-                              stroke="#888"
-                              strokeWidth="1.8"
-                              viewBox="0 0 24 24"
-                            >
-                              <path d="M21 10c0 7-9 13-9 13s-9-6-9-13a9 9 0 0118 0z" />
-                              <circle cx="12" cy="10" r="3" />
-                            </svg>
-                          </span>
-                          <Select<SelectOption>
-                            instanceId="checkout-area"
-                            options={areaSelectOptions}
-                            value={
-                              areaSelectOptions.find(
-                                (o) => o.value === deliveryAreaId,
-                              ) ?? null
-                            }
-                            onChange={(option) =>
-                              setDeliveryAreaId(option?.value ?? "")
-                            }
-                            isDisabled={!district}
-                            placeholder={
-                              district
-                                ? "-- এরিয়া বেছে নিন --"
-                                : "-- আগে জেলা বেছে নিন --"
-                            }
-                            noOptionsMessage={() => "কোনো এরিয়া পাওয়া যায়নি"}
-                            styles={selectStyles}
-                            menuPortalTarget={menuPortalTarget}
-                          />
-                        </div>
-                      </div>
-                    )}
-                  </div>
-                  {deliveryLocationChosen && (
-                    <p
+                {/* Delivery area */}
+                {deliveryAreas.length > 0 && (
+                  <div>
+                    <label
                       style={{
-                        margin: "6px 0 0",
-                        fontSize: 13,
-                        color: "#FE7A0D",
-                        fontWeight: 500,
+                        fontSize: 14,
+                        fontWeight: 600,
+                        color: "#333",
+                        display: "block",
+                        marginBottom: 8,
                       }}
                     >
-                      {freeDelivery
-                        ? tierFreeDelivery && !allItemsFreeShipping
-                          ? `${rewards?.tier?.current.name} মেম্বার হিসেবে ফ্রি ডেলিভারি`
-                          : "এই অর্ডারে ফ্রি ডেলিভারি প্রযোজ্য"
-                        : `ডেলিভারি চার্জ: ৳${fmt(deliveryCharge)}`}
-                    </p>
-                  )}
-                </div>
-
-                {/* Delivery date */}
-                <div>
-                  <label
-                    style={{
-                      fontSize: 14,
-                      fontWeight: 600,
-                      color: "#333",
-                      display: "block",
-                      marginBottom: 8,
-                    }}
-                  >
-                    ডেলিভারি তারিখ ও সময়{" "}
-                    <span style={{ fontWeight: 400, color: "#888" }}>
-                      (ঐচ্ছিক)
-                    </span>
-                  </label>
-                  <div
-                    style={{
-                      display: "grid",
-                      gridTemplateColumns:
-                        "repeat(auto-fit, minmax(220px, 1fr))",
-                      gap: 16,
-                    }}
-                  >
-                    <div style={fieldWrap}>
-                      <span style={iconBox}>
-                        <svg
-                          width="18"
-                          height="18"
-                          fill="none"
-                          stroke="#888"
-                          strokeWidth="1.8"
-                          viewBox="0 0 24 24"
-                        >
-                          <rect x="3" y="4" width="18" height="18" rx="2" />
-                          <path d="M16 2v4M8 2v4M3 10h18" />
-                        </svg>
-                      </span>
-                      <input
-                        type="date"
-                        value={deliveryDay}
-                        min={toDateInputValue(0)}
-                        onChange={(e) => {
-                          setDeliveryDay(e.target.value);
-                          if (!e.target.value) setDeliveryTime("");
+                      ডেলিভারি এরিয়া <span style={{ color: "#D7262E" }}>*</span>
+                    </label>
+                    <div
+                      style={{
+                        display: "grid",
+                        gridTemplateColumns: "repeat(auto-fit, minmax(200px, 1fr))",
+                        gap: 12,
+                      }}
+                    >
+                      {areaOptions.map((area) => {
+                        const selected = area.Id === selectedArea?.Id;
+                        return (
+                          <label
+                            key={area.Id}
+                            style={{
+                              display: "flex",
+                              alignItems: "center",
+                              gap: 10,
+                              padding: "13px 16px",
+                              border: `1.5px solid ${selected ? "#FE7A0D" : "#ddd"}`,
+                              borderRadius: 8,
+                              background: selected ? "#FFF5EC" : "#fff",
+                              cursor: "pointer",
+                              fontSize: 14,
+                              fontWeight: 600,
+                              color: selected ? "#FE7A0D" : "#333",
+                            }}
+                          >
+                            <input
+                              type="radio"
+                              name="delivery-area"
+                              value={area.Id}
+                              checked={selected}
+                              onChange={() => setDeliveryAreaId(String(area.Id))}
+                              style={{ accentColor: "#FE7A0D", margin: 0 }}
+                            />
+                            <span style={{ flex: 1 }}>{area.area}</span>
+                            <span style={{ fontWeight: 500, color: "#666" }}>
+                              ৳{fmt(getDeliveryAreaCharge(area))}
+                            </span>
+                          </label>
+                        );
+                      })}
+                    </div>
+                    {areaOptions.length === 0 && (
+                      <p style={{ margin: "6px 0 0", fontSize: 13, color: "#D7262E" }}>
+                        কার্টের পণ্যগুলো একই এরিয়াতে ডেলিভারি হয় না। আলাদা অর্ডার করুন।
+                      </p>
+                    )}
+                    {selectedArea && freeDelivery && (
+                      <p
+                        style={{
+                          margin: "6px 0 0",
+                          fontSize: 13,
+                          color: "#FE7A0D",
+                          fontWeight: 500,
                         }}
-                        style={{ ...inputStyle, cursor: "pointer" }}
-                      />
-                    </div>
-                    <div style={fieldWrap}>
-                      <span style={iconBox}>
-                        <svg
-                          width="18"
-                          height="18"
-                          fill="none"
-                          stroke="#888"
-                          strokeWidth="1.8"
-                          viewBox="0 0 24 24"
-                        >
-                          <circle cx="12" cy="12" r="9" />
-                          <path d="M12 7v5l3 3" />
-                        </svg>
-                      </span>
-                      <Select<SelectOption>
-                        instanceId="checkout-delivery-time"
-                        options={DELIVERY_TIME_OPTIONS}
-                        value={
-                          DELIVERY_TIME_OPTIONS.find(
-                            (o) => o.value === deliveryTime,
-                          ) ?? null
-                        }
-                        onChange={(option) =>
-                          setDeliveryTime(option?.value ?? "")
-                        }
-                        isDisabled={!deliveryDay}
-                        isClearable
-                        placeholder={
-                          deliveryDay
-                            ? "-- সময় বেছে নিন --"
-                            : "-- আগে তারিখ বেছে নিন --"
-                        }
-                        noOptionsMessage={() => "কোনো সময় পাওয়া যায়নি"}
-                        styles={selectStyles}
-                        menuPortalTarget={menuPortalTarget}
-                      />
-                    </div>
+                      >
+                        {tierFreeDelivery && !allItemsFreeShipping
+                          ? `${rewards?.tier?.current.name} মেম্বার হিসেবে ফ্রি ডেলিভারি`
+                          : "এই অর্ডারে ফ্রি ডেলিভারি প্রযোজ্য"}
+                      </p>
+                    )}
                   </div>
-                </div>
+                )}
 
                 {/* Special notes */}
                 <div>

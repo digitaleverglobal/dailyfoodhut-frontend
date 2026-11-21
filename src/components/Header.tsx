@@ -1,5 +1,5 @@
 "use client";
-import { useState, useRef, useEffect, useCallback, Suspense } from "react";
+import { useState, useRef, useEffect, Suspense } from "react";
 import Link from "next/link";
 import SafeImage from "@/components/SafeImage";
 import { usePathname, useRouter } from "next/navigation";
@@ -170,9 +170,8 @@ function HeaderInner({ logoUrl, navItems: navItemsProp }: HeaderProps) {
     document.addEventListener("mousedown", close);
     return () => document.removeEventListener("mousedown", close);
   }, []);
-  const { totalItems, totalPrice } = useCart();
+  const { totalItems, totalPrice, cartOpen, openCart, closeCart } = useCart();
   const { customer } = useCustomer();
-  const [cartOpen, setCartOpen] = useState(false);
   const router = useRouter();
 
   useEffect(() => {
@@ -197,11 +196,10 @@ function HeaderInner({ logoUrl, navItems: navItemsProp }: HeaderProps) {
   }, [customer, search, searchResults]);
 
   const handleCartCheckout = () => {
-    setCartOpen(false);
+    closeCart();
     router.push("/checkout");
   };
 
-  const closeCart = useCallback(() => setCartOpen(false), []);
 
   return (
     <header ref={headerRef} className="w-full sticky top-0 z-50 shadow-md">
@@ -244,7 +242,7 @@ function HeaderInner({ logoUrl, navItems: navItemsProp }: HeaderProps) {
             {/* Cart icon */}
             <div className="relative" style={{ flexShrink: 0 }}>
               <button
-                onClick={() => setCartOpen(true)}
+                onClick={() => openCart()}
                 className="flex flex-col items-center gap-0.5 text-gray-600 hover:text-[#1A7D36] transition-colors"
                 style={{ background: "none", border: "none", cursor: "pointer", padding: 0, position: "relative" }}
               >
@@ -399,7 +397,7 @@ function HeaderInner({ logoUrl, navItems: navItemsProp }: HeaderProps) {
 
             {/* Cart — opens the cart drawer */}
             <div className="relative">
-              <button onClick={() => setCartOpen(true)} className="flex flex-col items-center gap-0.5 text-gray-600 hover:text-[#1A7D36] transition-colors">
+              <button onClick={() => openCart()} className="flex flex-col items-center gap-0.5 text-gray-600 hover:text-[#1A7D36] transition-colors">
                 <div className="relative">
                   <svg width={26} height={26} fill="none" stroke="currentColor" strokeWidth={1.8} viewBox="0 0 24 24">
                     <path d="M6 2L3 6v14a2 2 0 002 2h14a2 2 0 002-2V6l-3-4zM3 6h18M16 10a4 4 0 01-8 0" />

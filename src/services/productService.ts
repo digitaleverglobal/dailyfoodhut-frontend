@@ -85,6 +85,9 @@ function mapToProduct(item: ApiProduct): Product {
     features: item.features || [],
     sku: item.sku ?? null,
     freeShipping: toBoolean(item.freeShipping),
+    deliveryAreaIds: Array.isArray(item.deliveryAreaIds)
+      ? item.deliveryAreaIds.map(Number).filter((id) => id > 0)
+      : [],
     bestDeals: toBoolean(item.bestDeals),
     flashSale: toBoolean(item.flashSale),
     hasVariants: variants.length > 1,
